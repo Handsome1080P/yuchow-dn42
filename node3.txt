@@ -1,0 +1,130 @@
+router id 192.168.100.30;
+
+ipv4 table local_table4;
+ipv6 table local_table6;
+ipv4 table dn42_table4;
+ipv6 table dn42_table6;
+
+function is_self_network_v4() {
+    return net ~ [
+        192.168.25.0/24{24,32}
+    ];
+}
+
+protocol device System {
+    scan time 60;
+}
+
+protocol direct Local_Interfaces {
+    ipv4 {
+        table local_table4;
+    };
+    interface "enp1s0";
+};
+
+template bgp Local_Peers {
+    local as 65530;
+    direct;
+    path metric;
+    enable route refresh;
+    graceful restart;
+    graceful restart time 120;
+    enable as4;
+    enable extended messages;
+    ipv4 {
+        table local_table4;
+        import filter {
+            if !is_self_network_v4() then accept;
+            else reject;
+        };
+        export all;
+        import limit 1000 action block;
+        extended next hop;
+    };
+}
+###################################################################################################
+define OWNIPv4 = 172.20.236.190;
+define OWNIPv6 = fd2b:1365:db9a::2000;
+
+protocol direct DN42_Interfaces {
+    ipv4 {
+        table dn42_table4;
+    };
+    ipv6 {
+        table dn42_table6;
+    };
+    interface "bgp";
+};
+
+template bgp iBGP_Peers {
+    local as 4200000004;
+    confederation 4242421260;
+    confederation member yes;
+    direct;
+    check link;
+    path metric;
+    enable route refresh;
+    graceful restart;
+    graceful restart time 120;
+    enable as4;
+    enable extended messages;
+    ipv4 {
+        table dn42_table4;
+        next hop self yes;
+        extended next hop;
+        import all;
+        export all;
+    };
+    ipv6 {
+        table dn42_table6;
+        next hop self yes;
+        extended next hop;
+        import all;
+        export all;
+    };
+};
+
+include "/etc/bird/local_peers/*";
+include "/etc/bird/ibgp_peers/*";
+
+protocol pipe DN422Local_V4 {
+    table local_table4;
+    peer table dn42_table4;
+    import filter {
+        if source = RTS_STATIC then reject;
+        krt_prefsrc = OWNIPv4;
+        accept;
+    };
+    export none;
+}
+
+protocol pipe DN422Local_V6 {
+    table local_table6;
+    peer table dn42_table6;
+    import filter {
+        if source = RTS_STATIC then reject;
+        krt_prefsrc = OWNIPv6;
+        accept;
+    };
+    export none;
+}
+
+protocol kernel Local2Main_V4 {
+    kernel table 254;
+    scan time 60;
+    ipv4 {
+        table local_table4;
+        import none;
+        export all;
+    };
+}
+
+protocol kernel Local2Main_V6 {
+    kernel table 254;
+    scan time 60;
+    ipv6 {
+        table local_table6;
+        import none;
+        export all;
+    };
+}
